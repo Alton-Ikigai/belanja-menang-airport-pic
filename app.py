@@ -16,10 +16,10 @@ st.markdown('''<style>
 html,body,[data-testid="stApp"] {font-family:'Century Gothic','Trebuchet MS',Arial,sans-serif}
 [data-testid="stAppViewContainer"]{background:#F4F7FB}
 h1,h2,h3{color:#142B49!important}
-[data-testid="stMetric"]{background:white;border:1px solid #E2E8F0;border-top:3px solid #C5A66B;border-radius:12px;padding:15px}
-.hero{background:linear-gradient(110deg,#142B49,#284D73);padding:28px 34px;border-radius:16px;color:white;margin-bottom:24px}
+[data-testid="stMetric"]{background:#E8F1FA;border:1px solid #B9D2E9;border-top:4px solid #1769AA;border-radius:12px;padding:15px}
+.hero{background:linear-gradient(110deg,#082B53,#1769AA);padding:28px 34px;border-radius:16px;color:white;margin-bottom:24px}
 .hero h1{color:white!important;margin:0;font-size:2rem}.hero p{color:#D8E5F1;margin:8px 0 0}
-</style>''', unsafe_allow_html=True)
+[data-testid="stMetricLabel"]{color:#164976!important;font-weight:650} [data-testid="stMetricValue"]{color:#092D54!important;font-weight:700} div[data-testid="stDataFrame"]{border:1px solid #B9D2E9;border-radius:9px} .section-title{background:#103C6B;color:#fff;padding:11px 15px;border-radius:8px;font-weight:700;margin:20px 0 12px}</style>''', unsafe_allow_html=True)
 
 AIRPORTS = {
  'PEN':'Penang International Airport','LGK':'Langkawi International Airport',
@@ -150,7 +150,7 @@ b.metric('Contest Sales Achievement',f'{sales/target_sales*100:,.1f}%' if target
 c.metric('Annual Airport Sales Target (RM)',f'{annual_airport_sales:,.2f}')
 st.caption('Contest sales are receipt values from campaign entries. Annual airport sales targets are a separate measure; airport-wide actual sales are not inferred from receipts.')
 
-st.markdown('### Monthly Performance')
+st.markdown('<div class="section-title">MONTHLY PERFORMANCE</div>',unsafe_allow_html=True)
 monthly_raw=only_airport(data.get('monthly_online_airports'),code)
 monthly_rows=[]
 for month,label in MONTHS.items():
@@ -162,28 +162,47 @@ st.dataframe(monthly,hide_index=True,use_container_width=True)
 if not data.get('monthly_actuals_scope'):
     st.info('The source publication does not specify whether monthly figures include physical forms. Confirm its reporting scope with the administrator.')
 
-st.markdown('### Merchant Performance')
+st.markdown('<div class="section-title">MERCHANT PERFORMANCE</div>',unsafe_allow_html=True)
 month_choice=st.selectbox('Reporting period',['Overall',*MONTHS.values()])
-category_choice=st.selectbox('Spending category',['All','Retail','Restaurant','Services'])
 if month_choice=='Overall':
     merchant_rows=only_airport(data.get('merchant_locations'),code,field='code')
-    if category_choice!='All':
-        st.info('Overall merchant totals do not contain spending category labels in the existing publication. Select a month to filter by category.')
 else:
     merchant_rows=only_airport(data.get('monthly_merchant_locations'),code,field='code')
     month_number=next(k for k,v in MONTHS.items() if v==month_choice)
     merchant_rows=[r for r in merchant_rows if int(r.get('month') or 0)==month_number]
-    if category_choice!='All': merchant_rows=[r for r in merchant_rows if str(r.get('category','')).casefold()==category_choice.casefold()]
+
+# Merchant contest sales cannot be inferred from airport-level totals. The existing
+# published snapshot has merchant entries but no merchant sales values.
+# Support future published snapshots if they include per-merchant sales_rm.
 if merchant_rows:
-    merchant_df=pd.DataFrame([{'Merchant':r.get('merchant',''),'Shop Location':r.get('shop_location',''),
-                              'Category':r.get('category','—'),'Entries':int(r.get('entries') or 0)} for r in merchant_rows])
-    merchant_df=merchant_df.groupby(['Merchant','Shop Location','Category'],as_index=False,dropna=False)['Entries'].sum()
+    merchant_df=pd.DataFrame([{
+        'Merchant':str(r.get('merchant') or '').strip(),
+        'Shop Location':str(r.get('shop_location') or '').strip(),
+        'Entries':int(r.get('entries') or 0),
+        'Contest Sales (RM)':float(r['sales_rm']) if r.get('sales_rm') is not None else float('nan')
+    } for r in merchant_rows])
+    # If future records are category-expanded, do not double-count the same
+    # merchant/location entries across categories. Prefer overall category-free
+    # merchant records for the Overall view; for monthly category-expanded data,
+    # retain the maximum reported count per merchant/location, not a sum.
+    merchant_df=merchant_df.groupby(['Merchant','Shop Location'],as_index=False,dropna=False).agg({
+        'Entries':'max','Contest Sales (RM)':'max'})
     merchant_df=merchant_df.sort_values(['Entries','Merchant'],ascending=[False,True]).reset_index(drop=True)
     merchant_df.insert(0,'Rank',merchant_df.index+1)
 else:
-    merchant_df=pd.DataFrame(columns=['Rank','Merchant','Shop Location','Category','Entries'])
-st.dataframe(merchant_df,hide_index=True,use_container_width=True)
-st.caption(f'{len(merchant_df):,} merchant locations in this view. Entries count is aggregated from the published dataset.')
+    merchant_df=pd.DataFrame(columns=['Rank','Merchant','Shop Location','Entries','Contest Sales (RM)'])
+
+if month_choice != 'Overall' and merchant_rows and any(r.get('category') for r in merchant_rows):
+    st.warning('Monthly merchant entries are category-expanded in the current master publication. The displayed count uses the largest category count per merchant to avoid double-counting, and may be lower than the true category-free total. Accurate monthly merchant totals require a category-free published aggregate.')
+
+if merchant_df['Contest Sales (RM)'].isna().any():
+    st.info('Merchant-level contest sales are not included in the existing published Supabase data. The sales column will remain blank until merchant sales amounts are provided. Your management dashboard is unchanged.')
+
+st.dataframe(merchant_df,hide_index=True,use_container_width=True,column_config={
+    'Entries':st.column_config.NumberColumn('Total Entries',format='%d'),
+    'Contest Sales (RM)':st.column_config.NumberColumn('Contest Sales (RM)',format='RM %.2f'),
+})
+st.caption(f'{len(merchant_df):,} merchant locations in this view. Merchant sales are only shown when published values are available.')
 overview={'Airport':AIRPORTS[code],'Code':code,'Entry Target':target_entries,'Actual Entries':entries,
           'Contest Sales Target (RM)':target_sales,'Contest Sales Actual (RM)':sales,
           'Annual Airport Sales Target (RM)':annual_airport_sales,'Published At':str(published.get('updated_at',''))}
