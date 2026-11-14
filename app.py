@@ -4,6 +4,7 @@ import hmac
 import io
 import json
 import time
+from html import escape
 from datetime import datetime
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
@@ -19,7 +20,14 @@ h1,h2,h3{color:#142B49!important}
 [data-testid="stMetric"]{background:#E8F1FA;border:1px solid #B9D2E9;border-top:4px solid #1769AA;border-radius:12px;padding:15px}
 .hero{background:linear-gradient(110deg,#082B53,#1769AA);padding:28px 34px;border-radius:16px;color:white;margin-bottom:24px}
 .hero h1{color:white!important;margin:0;font-size:2rem}.hero p{color:#D8E5F1;margin:8px 0 0}
-[data-testid="stMetricLabel"]{color:#164976!important;font-weight:650} [data-testid="stMetricValue"]{color:#092D54!important;font-weight:700} div[data-testid="stDataFrame"]{border:1px solid #B9D2E9;border-radius:9px} .section-title{background:#103C6B;color:#fff;padding:11px 15px;border-radius:8px;font-weight:700;margin:20px 0 12px}</style>''', unsafe_allow_html=True)
+[data-testid="stMetricLabel"]{color:#164976!important;font-weight:650} [data-testid="stMetricValue"]{color:#092D54!important;font-weight:700} div[data-testid="stDataFrame"]{border:1px solid #B9D2E9;border-radius:9px} .section-title{background:#103C6B;color:#fff;padding:11px 15px;border-radius:8px;font-weight:700;margin:20px 0 12px}
+.pic-table-scroll{overflow-x:auto;max-height:560px;overflow-y:auto;border:1px solid #C7D7E7;border-radius:10px;margin:8px 0 18px;background:white}
+.pic-table{width:100%;border-collapse:collapse;min-width:740px;font-size:14px;font-family:Arial,sans-serif}
+.pic-table th{position:sticky;top:0;background:#103C6B;color:#fff;padding:14px 13px;text-align:left;white-space:nowrap;border-right:1px solid #3E6184;font-weight:700}
+.pic-table td{padding:11px 13px;border-bottom:1px solid #E1E9F2;color:#163454}
+.pic-table tr:nth-child(even) td{background:#F3F7FB}
+.pic-table td.num{text-align:right;font-variant-numeric:tabular-nums}
+</style>''', unsafe_allow_html=True)
 
 AIRPORTS = {
  'PEN':'Penang International Airport','LGK':'Langkawi International Airport',
@@ -85,6 +93,26 @@ def excel_bytes(monthly,merchants,overview):
         merchants.to_excel(writer,index=False,sheet_name='Merchants')
     return output.getvalue()
 
+
+def blue_table(df, money_columns=(), integer_columns=()):
+    if df.empty:
+        st.info('No records available for this period.')
+        return
+    headers = ''.join('<th>'+escape(str(c))+'</th>' for c in df.columns)
+    rows = []
+    for _, row in df.iterrows():
+        cells = []
+        for col in df.columns:
+            val = row[col]
+            if pd.isna(val): label = '—'
+            elif col in money_columns: label = f'{float(val):,.2f}'
+            elif col in integer_columns: label = f'{int(val):,}'
+            else: label = str(val)
+            cls = ' class="num"' if col in money_columns or col in integer_columns else ''
+            cells.append(f'<td{cls}>'+escape(label)+'</td>')
+        rows.append('<tr>'+''.join(cells)+'</tr>')
+    html = '<div class="pic-table-scroll"><table class="pic-table"><thead><tr>'+headers+'</tr></thead><tbody>'+''.join(rows)+'</tbody></table></div>'
+    st.markdown(html, unsafe_allow_html=True)
 
 st.markdown('<div class="hero"><h1>Belanja &amp; Menang 2026</h1><p>Airport PIC Performance Portal</p></div>',unsafe_allow_html=True)
 if 'pic_code' not in st.session_state: st.session_state.pic_code=None
@@ -158,7 +186,7 @@ for month,label in MONTHS.items():
     monthly_rows.append({'Month':label,'Contest Entries':sum(int(r.get('entries') or 0) for r in subset),
                          'Contest Sales (RM)':round(sum(float(r.get('sales_rm') or 0) for r in subset),2)})
 monthly=pd.DataFrame(monthly_rows)
-st.dataframe(monthly,hide_index=True,use_container_width=True)
+blue_table(monthly, money_columns=['Contest Sales (RM)'], integer_columns=['Contest Entries'])
 if not data.get('monthly_actuals_scope'):
     st.info('The source publication does not specify whether monthly figures include physical forms. Confirm its reporting scope with the administrator.')
 
@@ -167,13 +195,11 @@ month_choice=st.selectbox('Reporting period',['Overall',*MONTHS.values()])
 if month_choice=='Overall':
     merchant_rows=only_airport(data.get('merchant_locations'),code,field='code')
 else:
-    merchant_rows=only_airport(data.get('monthly_merchant_locations'),code,field='code')
+    merchant_rows=only_airport(data.get('monthly_merchant_overall'),code,field='code')
     month_number=next(k for k,v in MONTHS.items() if v==month_choice)
     merchant_rows=[r for r in merchant_rows if int(r.get('month') or 0)==month_number]
 
-# Merchant contest sales cannot be inferred from airport-level totals. The existing
-# published snapshot has merchant entries but no merchant sales values.
-# Support future published snapshots if they include per-merchant sales_rm.
+# Merchant receipt sales are read from the new master-published merchant aggregates.
 if merchant_rows:
     merchant_df=pd.DataFrame([{
         'Merchant':str(r.get('merchant') or '').strip(),
@@ -186,22 +212,18 @@ if merchant_rows:
     # merchant records for the Overall view; for monthly category-expanded data,
     # retain the maximum reported count per merchant/location, not a sum.
     merchant_df=merchant_df.groupby(['Merchant','Shop Location'],as_index=False,dropna=False).agg({
-        'Entries':'max','Contest Sales (RM)':'max'})
+        'Entries':'sum','Contest Sales (RM)':'sum'})
     merchant_df=merchant_df.sort_values(['Entries','Merchant'],ascending=[False,True]).reset_index(drop=True)
     merchant_df.insert(0,'Rank',merchant_df.index+1)
 else:
     merchant_df=pd.DataFrame(columns=['Rank','Merchant','Shop Location','Entries','Contest Sales (RM)'])
 
-if month_choice != 'Overall' and merchant_rows and any(r.get('category') for r in merchant_rows):
-    st.warning('Monthly merchant entries are category-expanded in the current master publication. The displayed count uses the largest category count per merchant to avoid double-counting, and may be lower than the true category-free total. Accurate monthly merchant totals require a category-free published aggregate.')
-
+if month_choice != 'Overall' and not data.get('monthly_merchant_overall'):
+    st.warning('Monthly merchant sales require republishing Excel data with the updated master app. Until then, no monthly merchant figures are available.')
 if merchant_df['Contest Sales (RM)'].isna().any():
-    st.info('Merchant-level contest sales are not included in the existing published Supabase data. The sales column will remain blank until merchant sales amounts are provided. Your management dashboard is unchanged.')
-
-st.dataframe(merchant_df,hide_index=True,use_container_width=True,column_config={
-    'Entries':st.column_config.NumberColumn('Total Entries',format='%d'),
-    'Contest Sales (RM)':st.column_config.NumberColumn('Contest Sales (RM)',format='RM %.2f'),
-})
+    st.info('Merchant receipt totals are not yet in the published snapshot. Update the master app and republish the three Excel files once to populate them.')
+blue_table(merchant_df.rename(columns={'Entries':'Total Entries'}),
+           money_columns=['Contest Sales (RM)'],integer_columns=['Rank','Total Entries'])
 st.caption(f'{len(merchant_df):,} merchant locations in this view. Merchant sales are only shown when published values are available.')
 overview={'Airport':AIRPORTS[code],'Code':code,'Entry Target':target_entries,'Actual Entries':entries,
           'Contest Sales Target (RM)':target_sales,'Contest Sales Actual (RM)':sales,
