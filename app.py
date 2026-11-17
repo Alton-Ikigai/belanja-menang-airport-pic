@@ -167,57 +167,45 @@ rows=only_airport(data.get('airports'),code)
 entries=sum(int(r.get('entries') or 0) for r in rows)
 sales=sum(float(r.get('sales_rm') or 0) for r in rows)
 target_entries,target_sales,annual_airport_sales=TARGETS[code]
-# Master-dashboard-style achievement card for the signed-in airport.
-# Keep contest receipt sales separate from airport-wide sales.
-entry_pct = entries / target_entries * 100 if target_entries else 0.0
-sales_pct = sales / target_sales * 100 if target_sales else 0.0
-atv = sales / entries if entries else 0.0
-from html import escape as html_escape
+# Six KPI cards matching the Master Dashboard's 3-by-2 layout.
+# Per-airport online/physical counts are not present in the published snapshot.
+# Do not substitute campaign-wide counts or invent an airport-level split.
 st.markdown("""
 <style>
-.pic-achievement-card{background:#fff;border:1px solid #E1E9F2;border-radius:13px;overflow:hidden;
- box-shadow:0 8px 28px rgba(20,43,73,.055);margin:8px 0 20px}
-.pic-achievement-top{height:5px;background:linear-gradient(90deg,#142B49,#C5A66B)}
-.pic-achievement-content{padding:20px 24px}
-.pic-achievement-title{font-size:23px;font-weight:800;color:#142B49;margin-bottom:17px}
-.pic-metric-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
-.pic-metric-label{color:#536781;font-size:15px;font-weight:800}
-.pic-metric-pct{font-size:30px;font-weight:800;color:#142B49}
-.pic-metric-values{font-size:16px;color:#344B66;margin:3px 0 9px;font-weight:650}
-.pic-metric-values span{color:#8290A1;font-weight:400}
-.pic-track{height:7px;background:#E9EEF5;border-radius:20px;overflow:hidden}
-.pic-fill{height:100%;border-radius:20px;background:linear-gradient(90deg,#28598A,#3B82C4)}
-.pic-fill.gold{background:linear-gradient(90deg,#AD874B,#D6B875)}
-.pic-divider{height:1px;background:#E9EEF5;margin:16px 0}
-.pic-extra{background:#F7F9FC;border:1px solid #E5EBF3;border-radius:10px;padding:14px}
-.pic-extra-label{color:#536781;font-size:12px;font-weight:800;letter-spacing:.25px}
-.pic-extra-value{color:#142B49;font-size:22px;font-weight:800;margin-top:7px}
-.pic-note{color:#65758B;font-size:12px;margin-top:8px}
-@media(max-width:600px){.pic-achievement-content{padding:16px}.pic-metric-pct{font-size:25px}}
+div[data-testid="stMetric"] {
+  background:#FFFFFF !important;
+  border:1px solid #E0E8F1 !important;
+  border-top:3px solid #C9A765 !important;
+  border-radius:14px !important;
+  padding:22px 20px !important;
+  min-height:129px;
+  box-shadow:0 8px 25px rgba(17,40,72,.045);
+}
+div[data-testid="stMetricLabel"] {color:#46628A !important;font-size:13px !important;font-weight:650 !important}
+div[data-testid="stMetricValue"] {color:#092D54 !important;font-size:32px !important;font-weight:800 !important}
+div[data-testid="stMetricDelta"] {color:#09816B !important;background:#EEF9F5;border-radius:12px;padding:1px 7px;width:max-content}
 </style>
 """,unsafe_allow_html=True)
-st.markdown(f"""
-<div class="pic-achievement-card">
- <div class="pic-achievement-top"></div>
- <div class="pic-achievement-content">
-  <div class="pic-achievement-title">{html_escape(AIRPORTS[code])} ({html_escape(code)})</div>
-  <div class="pic-metric-head"><div class="pic-metric-label">CONTEST ENTRIES</div><div class="pic-metric-pct">{entry_pct:.2f}%</div></div>
-  <div class="pic-metric-values">{entries:,} <span>/ {target_entries:,} target entries</span></div>
-  <div class="pic-track"><div class="pic-fill" style="width:{max(0,min(100,entry_pct)):.2f}%"></div></div>
-  <div class="pic-divider"></div>
-  <div class="pic-metric-head"><div class="pic-metric-label">CONTEST SALES</div><div class="pic-metric-pct">{sales_pct:.2f}%</div></div>
-  <div class="pic-metric-values">RM {sales:,.2f} <span>/ RM {target_sales:,.2f} target</span></div>
-  <div class="pic-track"><div class="pic-fill gold" style="width:{max(0,min(100,sales_pct)):.2f}%"></div></div>
-  <div class="pic-divider"></div>
-  <div class="pic-extra"><div class="pic-extra-label">ATV PER CONTEST ENTRY</div><div class="pic-extra-value">RM {atv:,.2f}</div></div>
-  <div class="pic-divider"></div>
-  <div class="pic-metric-head"><div class="pic-metric-label">AIRPORT SALES</div><div class="pic-metric-pct">—</div></div>
-  <div class="pic-metric-values">Not available <span>/ RM {annual_airport_sales:,.2f} annual target</span></div>
-  <div class="pic-track"><div class="pic-fill gold" style="width:0%"></div></div>
-  <div class="pic-note">Airport-wide actual sales are not available in this airport's published data.</div>
- </div>
-</div>
-""",unsafe_allow_html=True)
+entry_pct = entries / target_entries * 100 if target_entries else 0
+sales_pct = sales / target_sales * 100 if target_sales else 0
+atv = sales / entries if entries else 0
+# Optional per-airport breakdown, supported only when master publishes it.
+source_breakdown = data.get('airport_entry_sources') or {}
+airport_source = source_breakdown.get(code) if isinstance(source_breakdown,dict) else None
+if isinstance(airport_source,dict) and 'online' in airport_source and 'physical' in airport_source:
+    source_label = f"{int(airport_source['online']):,} / {int(airport_source['physical']):,}"
+else:
+    source_label = "— / —"
+c1,c2,c3=st.columns(3)
+c1.metric('Contest Entries Target',f'{target_entries:,}')
+c2.metric('Contest Entries Target Achieved',f'{entry_pct:.2f}%',f'{entries:,} entries recorded',delta_arrow='off')
+c3.metric('Contest Entries — Online / Physical Form',source_label)
+c4,c5,c6=st.columns(3)
+c4.metric('Contest Sales Target',f'RM {target_sales:,.2f}')
+c5.metric('Contest Sales Achieved',f'{sales_pct:.2f}%',f'RM {sales:,.2f} recorded',delta_arrow='off')
+c6.metric('ATV per Entry',f'RM {atv:,.2f}')
+if airport_source is None or not isinstance(airport_source,dict) or 'online' not in airport_source or 'physical' not in airport_source:
+    st.caption('Online / Physical Form breakdown by airport is not yet included in the master dashboard publication.')
 
 st.markdown('<div class="section-title">MONTHLY PERFORMANCE</div>',unsafe_allow_html=True)
 monthly_raw=only_airport(data.get('monthly_online_airports'),code)
