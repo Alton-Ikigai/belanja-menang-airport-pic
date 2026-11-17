@@ -167,16 +167,57 @@ rows=only_airport(data.get('airports'),code)
 entries=sum(int(r.get('entries') or 0) for r in rows)
 sales=sum(float(r.get('sales_rm') or 0) for r in rows)
 target_entries,target_sales,annual_airport_sales=TARGETS[code]
-c1,c2,c3,c4=st.columns(4)
-c1.metric('Contest Entry Target',f'{target_entries:,}')
-c2.metric('Actual Contest Entries',f'{entries:,}')
-c3.metric('Entry Achievement',f'{entries/target_entries*100:,.1f}%' if target_entries else '—')
-c4.metric('Contest Sales (RM)',f'{sales:,.2f}')
-a,b,c=st.columns(3)
-a.metric('Contest Sales Target (RM)',f'{target_sales:,.2f}')
-b.metric('Contest Sales Achievement',f'{sales/target_sales*100:,.1f}%' if target_sales else '—')
-c.metric('Annual Airport Sales Target (RM)',f'{annual_airport_sales:,.2f}')
-st.caption('Contest sales are receipt values from campaign entries. Annual airport sales targets are a separate measure; airport-wide actual sales are not inferred from receipts.')
+# Master-dashboard-style achievement card for the signed-in airport.
+# Keep contest receipt sales separate from airport-wide sales.
+entry_pct = entries / target_entries * 100 if target_entries else 0.0
+sales_pct = sales / target_sales * 100 if target_sales else 0.0
+atv = sales / entries if entries else 0.0
+from html import escape as html_escape
+st.markdown("""
+<style>
+.pic-achievement-card{background:#fff;border:1px solid #E1E9F2;border-radius:13px;overflow:hidden;
+ box-shadow:0 8px 28px rgba(20,43,73,.055);margin:8px 0 20px}
+.pic-achievement-top{height:5px;background:linear-gradient(90deg,#142B49,#C5A66B)}
+.pic-achievement-content{padding:20px 24px}
+.pic-achievement-title{font-size:23px;font-weight:800;color:#142B49;margin-bottom:17px}
+.pic-metric-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.pic-metric-label{color:#536781;font-size:15px;font-weight:800}
+.pic-metric-pct{font-size:30px;font-weight:800;color:#142B49}
+.pic-metric-values{font-size:16px;color:#344B66;margin:3px 0 9px;font-weight:650}
+.pic-metric-values span{color:#8290A1;font-weight:400}
+.pic-track{height:7px;background:#E9EEF5;border-radius:20px;overflow:hidden}
+.pic-fill{height:100%;border-radius:20px;background:linear-gradient(90deg,#28598A,#3B82C4)}
+.pic-fill.gold{background:linear-gradient(90deg,#AD874B,#D6B875)}
+.pic-divider{height:1px;background:#E9EEF5;margin:16px 0}
+.pic-extra{background:#F7F9FC;border:1px solid #E5EBF3;border-radius:10px;padding:14px}
+.pic-extra-label{color:#536781;font-size:12px;font-weight:800;letter-spacing:.25px}
+.pic-extra-value{color:#142B49;font-size:22px;font-weight:800;margin-top:7px}
+.pic-note{color:#65758B;font-size:12px;margin-top:8px}
+@media(max-width:600px){.pic-achievement-content{padding:16px}.pic-metric-pct{font-size:25px}}
+</style>
+""",unsafe_allow_html=True)
+st.markdown(f"""
+<div class="pic-achievement-card">
+ <div class="pic-achievement-top"></div>
+ <div class="pic-achievement-content">
+  <div class="pic-achievement-title">{html_escape(AIRPORTS[code])} ({html_escape(code)})</div>
+  <div class="pic-metric-head"><div class="pic-metric-label">CONTEST ENTRIES</div><div class="pic-metric-pct">{entry_pct:.2f}%</div></div>
+  <div class="pic-metric-values">{entries:,} <span>/ {target_entries:,} target entries</span></div>
+  <div class="pic-track"><div class="pic-fill" style="width:{max(0,min(100,entry_pct)):.2f}%"></div></div>
+  <div class="pic-divider"></div>
+  <div class="pic-metric-head"><div class="pic-metric-label">CONTEST SALES</div><div class="pic-metric-pct">{sales_pct:.2f}%</div></div>
+  <div class="pic-metric-values">RM {sales:,.2f} <span>/ RM {target_sales:,.2f} target</span></div>
+  <div class="pic-track"><div class="pic-fill gold" style="width:{max(0,min(100,sales_pct)):.2f}%"></div></div>
+  <div class="pic-divider"></div>
+  <div class="pic-extra"><div class="pic-extra-label">ATV PER CONTEST ENTRY</div><div class="pic-extra-value">RM {atv:,.2f}</div></div>
+  <div class="pic-divider"></div>
+  <div class="pic-metric-head"><div class="pic-metric-label">AIRPORT SALES</div><div class="pic-metric-pct">—</div></div>
+  <div class="pic-metric-values">Not available <span>/ RM {annual_airport_sales:,.2f} annual target</span></div>
+  <div class="pic-track"><div class="pic-fill gold" style="width:0%"></div></div>
+  <div class="pic-note">Airport-wide actual sales are not available in this airport's published data.</div>
+ </div>
+</div>
+""",unsafe_allow_html=True)
 
 st.markdown('<div class="section-title">MONTHLY PERFORMANCE</div>',unsafe_allow_html=True)
 monthly_raw=only_airport(data.get('monthly_online_airports'),code)
