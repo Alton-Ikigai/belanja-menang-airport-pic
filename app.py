@@ -189,13 +189,16 @@ div[data-testid="stMetricDelta"] {color:#09816B !important;background:#EEF9F5;bo
 entry_pct = entries / target_entries * 100 if target_entries else 0
 sales_pct = sales / target_sales * 100 if target_sales else 0
 atv = sales / entries if entries else 0
-# Optional per-airport breakdown, supported only when master publishes it.
-source_breakdown = data.get('airport_entry_sources') or {}
-airport_source = source_breakdown.get(code) if isinstance(source_breakdown,dict) else None
-if isinstance(airport_source,dict) and 'online' in airport_source and 'physical' in airport_source:
-    source_label = f"{int(airport_source['online']):,} / {int(airport_source['physical']):,}"
+# Master snapshot now includes source_type on each monthly airport aggregate.
+# Use the same airport-filtered rows as the other PIC metrics.
+source_rows = only_airport(data.get('monthly_online_airports'), code)
+source_types = {str(r.get('source_type') or '').strip() for r in source_rows}
+if source_rows and source_types.issubset({'Online','Physical'}):
+    online_count = sum(int(r.get('entries') or 0) for r in source_rows if r.get('source_type') == 'Online')
+    physical_count = sum(int(r.get('entries') or 0) for r in source_rows if r.get('source_type') == 'Physical')
+    source_label = f'{online_count:,} / {physical_count:,}'
 else:
-    source_label = "— / —"
+    source_label = '— / —'
 c1,c2,c3=st.columns(3)
 c1.metric('Contest Entries Target',f'{target_entries:,}')
 c2.metric('Contest Entries Target Achieved',f'{entry_pct:.2f}%',f'{entries:,} entries recorded',delta_arrow='off')
@@ -204,8 +207,8 @@ c4,c5,c6=st.columns(3)
 c4.metric('Contest Sales Target',f'RM {target_sales:,.2f}')
 c5.metric('Contest Sales Achieved',f'{sales_pct:.2f}%',f'RM {sales:,.2f} recorded',delta_arrow='off')
 c6.metric('ATV per Entry',f'RM {atv:,.2f}')
-if airport_source is None or not isinstance(airport_source,dict) or 'online' not in airport_source or 'physical' not in airport_source:
-    st.caption('Online / Physical Form breakdown by airport is not yet included in the master dashboard publication.')
+if source_label == '— / —':
+    st.caption('Online / Physical Form figures will appear after the updated Master Dashboard republishes all three Excel files.')
 
 st.markdown('<div class="section-title">MONTHLY PERFORMANCE</div>',unsafe_allow_html=True)
 monthly_raw=only_airport(data.get('monthly_online_airports'),code)
